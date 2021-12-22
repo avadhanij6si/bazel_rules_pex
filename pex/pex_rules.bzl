@@ -162,42 +162,49 @@ def _pex_binary_impl(ctx):
         transitive_files = depset(transitive=transitive_files),
     )
 
-    resources_dir = ctx.actions.declare_directory("{}.resources".format(ctx.attr.name))
-
+    sources_dir = ctx.actions.declare_directory("{}.sources".format(ctx.attr.name))
+    pex_tmp_dir_provided = ctx.configuration.default_shell_env.get('PEX_TMP_DIR')
     # Create resource directory and dump files into it
     # Relocate files according to `strip_prefix` if necessary and get all files into the base resource directory
     # Cleanup lingering files to prevent them from being added to the pex
+    # Create tmpdir for pex, if one is provided
     # Add `__init__.py` files to make the modules findable by pex execution
-    ctx.actions.run_shell(
-        mnemonic = "CreateResourceDirectory",
-        outputs = [resources_dir],
-        inputs = runfiles.files.to_list(),
-        command = 'mkdir -p {resources_dir} && rsync -R {transitive_files} {resources_dir} \
-            && if [ "{strip_prefix}" != "" ] && [ -n "$(ls -A {resources_dir}/{strip_prefix})" ]; then cp -R {resources_dir}/{strip_prefix}/* {resources_dir}; fi \
-            && if [ "{strip_prefix}" != "" ]; then rm -rf {resources_dir}/{strip_prefix}; fi \
-            && if [ -d {resources_dir}/{genfiles_dir}/{strip_prefix} ] && [ -n "$(ls -A {resources_dir}/{genfiles_dir}/{strip_prefix})" ]; then cp -R {resources_dir}/{genfiles_dir}/{strip_prefix}/* {resources_dir}; fi \
-            && rm -rf {resources_dir}/{genfiles_parent_dir} \
-            && find {resources_dir} -type d -exec touch {{}}/__init__.py \;'.format(
-            resources_dir = resources_dir.path,
+    cmd_to_run = 'mkdir -p {sources_dir} && rsync -R {transitive_files} {sources_dir} \
+            && if [ "{strip_prefix}" != "" ] && [ -n "$(ls -A {sources_dir}/{strip_prefix})" ]; then cp -R {sources_dir}/{strip_prefix}/* {sources_dir}; fi \
+            && if [ "{strip_prefix}" != "" ]; then rm -rf {sources_dir}/{strip_prefix}; fi \
+            && if [ -d {sources_dir}/{genfiles_dir}/{strip_prefix} ] && [ -n "$(ls -A {sources_dir}/{genfiles_dir}/{strip_prefix})" ]; then cp -R {sources_dir}/{genfiles_dir}/{strip_prefix}/* {sources_dir}; fi \
+            && rm -rf {sources_dir}/{genfiles_parent_dir} \
+            && find {sources_dir} -type d -exec touch {{}}/__init__.py \;'.format(
+            sources_dir = sources_dir.path,
             transitive_files = " ".join([file.path for file in runfiles.files.to_list()]),
             genfiles_dir = ctx.configuration.genfiles_dir.path,
             genfiles_parent_dir = ctx.configuration.genfiles_dir.path.split("/")[0],
-            strip_prefix = ctx.attr.strip_prefix.strip("/"),
-        ),
+            strip_prefix = ctx.attr.strip_prefix.strip("/"))
+    if pex_tmp_dir_provided:
+        cmd_to_run += " && mkdir -p {}".format(pex_tmp_dir_provided)
+    ctx.actions.run_shell(
+        mnemonic = "CreateResourceDirectory",
+        outputs = [sources_dir],
+        inputs = runfiles.files.to_list(),
+        command = cmd_to_run,
     )
 
     pexbuilder = ctx.executable._pexbuilder
     arguments = ["setuptools==44.1.0"]
 
     # form the arguments to pex builder
-    if not ctx.attr.zip_safe:
-        arguments += ["--not-zip-safe"]
+    for egg in py.transitive_eggs.to_list():
+        arguments += [egg.path]
+    for req in py.transitive_reqs.to_list():
+        arguments += [req]
     if not ctx.attr.use_wheels:
         arguments += ["--no-use-wheel"]
     if ctx.attr.no_index:
         arguments += ["--no-index"]
     if ctx.attr.disable_cache:
         arguments += ["--disable-cache"]
+    if pex_tmp_dir_provided:
+        arguments += ["--tmpdir", pex_tmp_dir_provided]
     for interpreter in ctx.attr.interpreters:
         arguments += ["--python", interpreter]
     for platform in ctx.attr.platforms:
@@ -206,18 +213,15 @@ def _pex_binary_impl(ctx):
         arguments += ["--requirement", req_file.path]
     for repo in repos:
         arguments += ["--repo", repo]
-    for egg in py.transitive_eggs.to_list():
-        arguments += [egg.path]
-    for req in py.transitive_reqs.to_list():
-        arguments += [req]
     if main_pkg:
         arguments += ["--entry-point", main_pkg]
     elif script:
         arguments += ["--script", script]
     arguments += [
-        "--resources-directory",
-        "{resources_dir}".format(
-            resources_dir = resources_dir.path,
+        # TODO set `--tmpdir` option within the build work dir so we stop putting temp files under `/tmp` and filling up root
+        "--sources-directory",
+        "{sources_dir}".format(
+            sources_dir = sources_dir.path,
             strip_prefix = ctx.attr.strip_prefix.strip("/"),
         ),
         "--pex-root",
@@ -230,7 +234,7 @@ def _pex_binary_impl(ctx):
     _inputs = (
         runfiles.files.to_list() +
         py.transitive_eggs.to_list()
-    ) + [resources_dir]
+    ) + [sources_dir]
 
     ctx.actions.run(
         mnemonic = "PexPython",
@@ -303,6 +307,7 @@ pex_attrs = {
         flags = ["DIRECT_COMPILE_TIME_INPUT"],
         allow_files = req_file_types,
     ),
+    # TODO support `--pex-repository` option to leverage shared requirements pex files to minimize redo-ing requirements resolutions (https://github.com/pantsbuild/pex/pull/1182)
     "no_index": attr.bool(default = False),
     "disable_cache": attr.bool(default = False),
     "repos": attr.label_list(
@@ -532,6 +537,6 @@ def pex_repositories():
     http_file(
         name = "pex_bin",
         executable = True,
-        urls = ["https://github.com/pantsbuild/pex/releases/download/v2.1.16/pex"],
-        sha256 = "38712847654254088a23394728f9a5fb93c6c83631300e7ab427ec780a88f653",
+        urls = ["https://github.com/pantsbuild/pex/releases/download/v2.1.56/pex"],
+        sha256 = "aff02e2ef0212db4531354e9b7b0d5f61745b3eb49665bc11142f0b603a27db9",
     )
