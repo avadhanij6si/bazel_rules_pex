@@ -203,8 +203,11 @@ def _pex_binary_impl(ctx):
         arguments += ["--no-index"]
     if ctx.attr.disable_cache:
         arguments += ["--disable-cache"]
+    else:
+        arguments += ["--pex-root", "~/.pex"]
     if pex_tmp_dir_provided:
         arguments += ["--tmpdir", pex_tmp_dir_provided]
+    
     for interpreter in ctx.attr.interpreters:
         arguments += ["--python", interpreter]
     for platform in ctx.attr.platforms:
@@ -217,6 +220,7 @@ def _pex_binary_impl(ctx):
         arguments += ["--entry-point", main_pkg]
     elif script:
         arguments += ["--script", script]
+
     arguments += [
         # TODO set `--tmpdir` option within the build work dir so we stop putting temp files under `/tmp` and filling up root
         "--sources-directory",
@@ -224,8 +228,6 @@ def _pex_binary_impl(ctx):
             sources_dir = sources_dir.path,
             strip_prefix = ctx.attr.strip_prefix.strip("/"),
         ),
-        "--pex-root",
-        "$(mktemp -d)" if ctx.attr.disable_cache else ".pex",  # So pex doesn't try to unpack into $HOME/.pex
         "--output-file",
         ctx.outputs.executable.path,
     ]
