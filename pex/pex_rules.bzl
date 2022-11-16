@@ -174,7 +174,7 @@ def _pex_binary_impl(ctx):
             && if [ "{strip_prefix}" != "" ]; then rm -rf {sources_dir}/{strip_prefix}; fi \
             && if [ -d {sources_dir}/{genfiles_dir}/{strip_prefix} ] && [ -n "$(ls -A {sources_dir}/{genfiles_dir}/{strip_prefix})" ]; then cp -R {sources_dir}/{genfiles_dir}/{strip_prefix}/* {sources_dir}; fi \
             && rm -rf {sources_dir}/{genfiles_parent_dir} \
-            && find {sources_dir} -type d -exec touch {{}}/__init__.py \;'.format(
+            && find {sources_dir} -type d -exec touch {{}}/__init__.py \\;'.format(
             sources_dir = sources_dir.path,
             transitive_files = " ".join([file.path for file in runfiles.files.to_list()]),
             genfiles_dir = ctx.configuration.genfiles_dir.path,
